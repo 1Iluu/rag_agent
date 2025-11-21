@@ -4,7 +4,7 @@ import logging
 from google.adk.tools.tool_context import ToolContext
 from vertexai import rag
 
-from ..config import (
+from config import (
     DEFAULT_DISTANCE_THRESHOLD,
     DEFAULT_TOP_K,
 )

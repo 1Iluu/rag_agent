@@ -3,13 +3,13 @@ from typing import List
 
 from google.adk.tools.tool_context import ToolContext
 from vertexai import rag
-from rag_agent.config import (
+from config import (
     DEFAULT_CHUNK_OVERLAP,
     DEFAULT_CHUNK_SIZE,
     DEFAULT_EMBEDDING_REQUESTS_PER_MIN,
 )
 from .utils import check_corpus_exists, get_corpus_resource_name
-"a"
+
 
 def add_data(
     corpus_name: str,

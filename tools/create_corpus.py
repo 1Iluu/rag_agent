@@ -7,10 +7,10 @@ import re
 from google.adk.tools.tool_context import ToolContext
 from vertexai import rag
 
-from ..config import (
+from config import (
     DEFAULT_EMBEDDING_MODEL,
 )
-from .utils import check_corpus_exists
+from tools.utils import check_corpus_exists
 
 
 def create_corpus(
