@@ -43,9 +43,10 @@ def create_corpus(
         rag_corpus = rag.create_corpus(
             display_name=display_name,
             backend_config=rag.RagVectorDbConfig(
-                rag_embedding_model_config=embedding_model_config
+                rag_embedding_model_config=embedding_model_config,
             ),
         )
+
 
         tool_context.state[f"corpus_exists_{corpus_name}"] = True
 

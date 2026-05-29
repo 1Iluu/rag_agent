@@ -3,13 +3,14 @@ import uvicorn
 import json
 import asyncio
 import vertexai
-import uuid  # <-- Importante para generar el ID
+import uuid
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from typing import Optional, Dict, Any
 
 MY_PROJECT = "rag-netsuit"
-MY_REGION = "us-east4"  
+MY_REGION = "us-central1"
 
 print(f"🌍 FORZANDO CONEXIÓN VERTEX AI -> Proyecto: {MY_PROJECT} | Región: {MY_REGION}")
 vertexai.init(project=MY_PROJECT, location=MY_REGION)
@@ -20,7 +21,10 @@ from agent import admin_agent, client_agent
 app = FastAPI()
 
 app.add_middleware(
-    CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 print("🧠 Iniciando memoria en RAM...")
@@ -35,26 +39,42 @@ class SimpleMessage:
         self.role = role
         self.parts = [SimplePart(text)]
 
-# --- FUNCIÓN HELPER ---
-async def run_agent_manually(agent, prompt: str, session_id: str = "default_session"):
+
+async def run_agent_manually(
+    agent, 
+    prompt: str, 
+    session_id: str = "default_session",
+    metadata: Optional[Dict[str, Any]] = None
+):
     CURRENT_USER = "default_user"
     APP_NAME = "rag_app"
     
     print(f"🤖 Procesando | Agent: {agent.name} | Session: {session_id}")
-    
+
     try:
         from google.adk.runners import Runner
-        
+
+        # ✅ SOLUCIÓN: verificar si existe ANTES de crear
+        existing_session = None
         try:
+            existing_session = memory_service.get_session(
+                session_id=session_id,
+                user_id=CURRENT_USER,
+                app_name=APP_NAME
+            )
+        except:
+            pass  # No existe aún, es normal
+
+        if existing_session is None:
+            # Solo crear si no existe
             memory_service.create_session(
                 session_id=session_id,
                 user_id=CURRENT_USER,
                 app_name=APP_NAME
             )
-            print(f"✅ Sesión verificada: {session_id}")
-        except Exception as e:
-            if "already exists" not in str(e):
-                print(f"⚠️ Nota sesión: {e}")
+            print(f"🆕 Sesión NUEVA creada: {session_id}")
+        else:
+            print(f"♻️ Sesión EXISTENTE reutilizada: {session_id}")
 
         runner = Runner(
             agent=agent,
@@ -64,22 +84,28 @@ async def run_agent_manually(agent, prompt: str, session_id: str = "default_sess
 
         message_object = SimpleMessage(text=prompt, role="user")
 
-        # EJECUTAR
+        if metadata:
+            session = memory_service.get_session(session_id, CURRENT_USER, APP_NAME)
+            if session and hasattr(session, 'state'):
+                session.state['pending_metadata'] = metadata
+
         async for event in runner.run_async(
-            new_message=message_object,   
-            session_id=session_id,        
+            new_message=message_object,
+            session_id=session_id,
             user_id=CURRENT_USER
         ):
             content = None
             
-            if hasattr(event, "text"): content = event.text
-            elif hasattr(event, "delta"): content = event.delta
+            if hasattr(event, "text"):
+                content = event.text
+            elif hasattr(event, "delta"):
+                content = event.delta
             elif hasattr(event, "model_response") and event.model_response:
                 content = getattr(event.model_response, "text", None)
             elif hasattr(event, "content") and event.content:
-                 parts = getattr(event.content, "parts", [])
-                 if parts and hasattr(parts[0], "text"):
-                     content = parts[0].text
+                parts = getattr(event.content, "parts", [])
+                if parts and hasattr(parts[0], "text"):
+                    content = parts[0].text
             
             if content is None and event:
                 s = str(event)
@@ -101,14 +127,60 @@ async def run_agent_manually(agent, prompt: str, session_id: str = "default_sess
         yield "data: [DONE]\n\n"
 
 
-# --- NUEVAS FUNCIONES Y ENDPOINTS ---
+@app.post("/api/streamQuery")
+async def unified_stream_query(request: Request):
+    """
+    Endpoint unificado que recibe:
+    {
+      "sessionId": "abc-123",
+      "message": "Lista los corpus disponibles",
+      "role": "admin" | "client",
+      "metadata": {  // ⬅️ OPCIONAL, solo para admin
+        "version": "2.1",
+        "description": "...",
+        "uploaded_by": "...",
+        "tags": [...]
+      }
+    }
+    """
+    body = await request.json()
+    
+    session_id = body.get("sessionId", str(uuid.uuid4()))
+    message = body.get("message", "")
+    role = body.get("role", "client")  # Default: client
+    metadata = body.get("metadata", None)  # ⬅️ Opcional
+    
+    # Validaciones
+    if not message:
+        return {"error": "El mensaje no puede estar vacío"}
+    
+    # Seleccionar agente según el role
+    if role == "admin":
+        agent = admin_agent
+        print(f"🔧 Usando ADMIN agent")
+    else:
+        agent = client_agent
+        print(f"👤 Usando CLIENT agent")
+    
+    # Stream con metadatos opcionales
+    return StreamingResponse(
+        run_agent_manually(agent, message, session_id, metadata),
+        media_type="text/event-stream"
+    )
 
-# 1. RUTA FALSA DE SESIONES (Esto soluciona el error 404 de Angular)
+
+# ✨ ENDPOINT PARA CREAR SESIONES (Angular lo usa)
+@app.post("/api/sessions")
+async def create_session_endpoint():
+    session_id = str(uuid.uuid4())
+    return {"sessionId": session_id}
+
+
+# 🔄 ENDPOINTS LEGACY (mantén compatibilidad si los usas en otro lado)
 @app.post("/apps/{app_name}/users/{user_id}/sessions")
-async def create_session(app_name: str, user_id: str):
+async def create_session_legacy(app_name: str, user_id: str):
     return {"session_id": str(uuid.uuid4())}
 
-# 2. EXTRACTOR DE TEXTO (Para leer el formato que manda Angular)
 def extract_prompt(body: dict) -> str:
     new_message = body.get("new_message", {})
     prompt = new_message.get("text", "")
@@ -120,24 +192,31 @@ def extract_prompt(body: dict) -> str:
             
     return prompt
 
-# 3. ENDPOINTS DE LOS AGENTES
 @app.post("/admin/run_sse")
 async def admin_endpoint(request: Request):
     body = await request.json()
     prompt = extract_prompt(body)
     sid = body.get("session_id", "admin_session")
-    return StreamingResponse(run_agent_manually(admin_agent, prompt, sid), media_type="text/event-stream")
+    return StreamingResponse(
+        run_agent_manually(admin_agent, prompt, sid),
+        media_type="text/event-stream"
+    )
 
 @app.post("/client/run_sse")
 async def client_endpoint(request: Request):
     body = await request.json()
     prompt = extract_prompt(body)
     sid = body.get("session_id", "client_session")
-    return StreamingResponse(run_agent_manually(client_agent, prompt, sid), media_type="text/event-stream")
+    return StreamingResponse(
+        run_agent_manually(client_agent, prompt, sid),
+        media_type="text/event-stream"
+    )
+
 
 @app.get("/")
 def health_check():
-    return {"status": "ok", "version": "object_fix_v8"}
+    return {"status": "ok", "version": "metadata_v1"}
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))

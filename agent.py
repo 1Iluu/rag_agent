@@ -7,6 +7,7 @@ from tools.delete_document import delete_document
 from tools.get_corpus_info import get_corpus_info
 from tools.list_corpora import list_corpora
 from tools.rag_query import rag_query
+from tools.get_document_versions import get_document_versions  
 
 
 CLIENT_TOOLS = [
@@ -24,6 +25,7 @@ ADMIN_TOOLS = [
     get_corpus_info,
     delete_corpus,
     delete_document,
+    get_document_versions,
 ]
 
 admin_agent = Agent(
