@@ -11,7 +11,6 @@ from config import (
 )
 from .utils import check_corpus_exists, get_corpus_resource_name
 
-# ✨ Importa las funciones de base de datos (créalas según mi mensaje anterior)
 try:
     from Database.db_config import save_document_metadata
     DB_AVAILABLE = True
