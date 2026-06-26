@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from typing import Optional, Dict, Any
 
-MY_PROJECT = "rag-netsuit"
+MY_PROJECT = "ragtp2"
 MY_REGION = "us-central1"
 
 print(f"🌍 FORZANDO CONEXIÓN VERTEX AI -> Proyecto: {MY_PROJECT} | Región: {MY_REGION}")
